@@ -217,6 +217,7 @@ def dashboard(db: Session = Depends(get_db)):
     allocated_orders = db.query(Order).filter(Order.status == "allocated").count()
     picking_orders = db.query(Order).filter(Order.status == "picking").count()
     completed_orders = db.query(Order).filter(Order.status == "completed").count()
+    shipped_orders = db.query(Order).filter(Order.status == "shipped").count()
 
     total_pickers = db.query(Picker).count()
     idle_pickers = db.query(Picker).filter(Picker.status == "idle").count()
@@ -235,6 +236,7 @@ def dashboard(db: Session = Depends(get_db)):
             "allocated": allocated_orders,
             "picking": picking_orders,
             "completed": completed_orders,
+            "shipped": shipped_orders,
         },
         "pickers": {
             "total": total_pickers,

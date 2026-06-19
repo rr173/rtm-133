@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -32,13 +32,14 @@ class Aisle(Base):
 
 class Bin(Base):
     __tablename__ = "bins"
+    __table_args__ = (UniqueConstraint("warehouse_id", "coordinate", name="uq_bin_warehouse_coordinate"),)
 
     id = Column(Integer, primary_key=True, index=True)
     aisle_id = Column(Integer, ForeignKey("aisles.id"), nullable=False)
     warehouse_id = Column(Integer, ForeignKey("warehouse_configs.id"), nullable=False)
     row = Column(Integer, nullable=False)
     level = Column(Integer, nullable=False)
-    coordinate = Column(String(20), unique=True, nullable=False)
+    coordinate = Column(String(20), nullable=False)
     x = Column(Integer, nullable=False)
     y = Column(Integer, nullable=False)
     sku_code = Column(String(50), nullable=True)
