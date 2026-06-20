@@ -241,3 +241,30 @@ class ReplenishStatsResponse(BaseModel):
     today_cancelled: int
     total_pending: int
     total_in_progress: int
+
+
+class RelocationSuggestionResponse(BaseModel):
+    id: int
+    source_bin: str
+    target_bin: str
+    sku_code: str
+    quantity: int
+    estimated_saving: float
+    status: str
+    reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = None
+    executed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RelocationDecisionRequest(BaseModel):
+    decision: str
+
+
+class RelocationStatsResponse(BaseModel):
+    total_executed: int
+    total_estimated_saving: float
+    last_full_optimization_at: Optional[datetime] = None

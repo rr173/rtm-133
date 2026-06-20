@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base, get_db
 from models import (
     WarehouseConfig, Aisle, Bin, Order, OrderItem, Picker, PickTask, Wave,
-    ReplenishConfig, ReplenishTask,
+    ReplenishConfig, ReplenishTask, RelocationSuggestion, RelocationStats,
 )
 from warehouse import router as warehouse_router
 from inventory import router as inventory_router
@@ -17,6 +17,7 @@ from picker import router as picker_router
 from allocation import router as allocation_router, trigger_allocation
 from stats import router as stats_router
 from replenishment import router as replenishment_router
+from relocation import router as relocation_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -243,6 +244,56 @@ def preset_low_stock_bins(db: Session, config: WarehouseConfig):
     db.flush()
 
 
+def preset_bin_heat_data(db: Session, config: WarehouseConfig):
+    all_bins = db.query(Bin).filter(Bin.warehouse_id == config.id).all()
+    mid_row = config.aisle_length // 2
+
+    bins_with_sku = [b for b in all_bins if b.sku_code and b.quantity > 0]
+    random.shuffle(bins_with_sku)
+
+    back_bins = [b for b in bins_with_sku if b.row > mid_row]
+    front_bins = [b for b in bins_with_sku if b.row <= mid_row]
+
+    hot_count = 0
+    for bin_obj in back_bins:
+        if hot_count >= 5:
+            break
+        bin_obj.pick_count = random.randint(15, 50)
+        hot_count += 1
+
+    if hot_count < 5:
+        other_bins = [b for b in bins_with_sku if b.row > mid_row and b not in back_bins[:hot_count]]
+        for bin_obj in other_bins:
+            if hot_count >= 5:
+                break
+            bin_obj.pick_count = random.randint(15, 50)
+            hot_count += 1
+
+    cold_count = 0
+    for bin_obj in front_bins:
+        if cold_count >= 5:
+            break
+        bin_obj.pick_count = 0
+        cold_count += 1
+
+    if cold_count < 5:
+        other_front_bins = [b for b in bins_with_sku if b.row <= mid_row and b not in front_bins[:cold_count]]
+        for bin_obj in other_front_bins:
+            if cold_count >= 5:
+                break
+            bin_obj.pick_count = 0
+            cold_count += 1
+
+    for bin_obj in bins_with_sku:
+        if bin_obj.pick_count == 0 and not (
+            (bin_obj in back_bins[:hot_count] if hot_count > 0 else False) or
+            (bin_obj in front_bins[:cold_count] if cold_count > 0 else False)
+        ):
+            bin_obj.pick_count = random.randint(1, 10)
+
+    db.flush()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db = SessionLocal()
@@ -253,6 +304,7 @@ async def lifespan(app: FastAPI):
         preset_low_stock_bins(db, config)
         preset_pickers(db)
         preset_test_orders(db, config)
+        preset_bin_heat_data(db, config)
         db.commit()
 
         results = trigger_allocation(db)
@@ -279,6 +331,32 @@ async def lifespan(app: FastAPI):
         print(f"  当前低于阈值的库位数: {low_count}")
         print(f"  提示: 调用 POST /api/replenishment/trigger-full-scan 可触发全仓补货检测")
         print(f"========================================")
+
+        hot_back_count = (
+            db.query(Bin)
+            .filter(
+                Bin.warehouse_id == config.id,
+                Bin.sku_code.isnot(None),
+                Bin.pick_count > 10,
+                Bin.row > config.aisle_length // 2,
+            )
+            .count()
+        )
+        cold_front_count = (
+            db.query(Bin)
+            .filter(
+                Bin.warehouse_id == config.id,
+                Bin.sku_code.isnot(None),
+                Bin.pick_count == 0,
+                Bin.row <= config.aisle_length // 2,
+            )
+            .count()
+        )
+        print(f"========== 库位热度预置信息 ==========")
+        print(f"  后半段热门库位(拣取>10次): {hot_back_count}个")
+        print(f"  前半段冷门库位(拣取=0次): {cold_front_count}个")
+        print(f"  提示: 调用 POST /api/relocation/generate-full 可生成全仓搬迁建议")
+        print(f"========================================")
     finally:
         db.close()
 
@@ -299,6 +377,7 @@ app.include_router(picker_router)
 app.include_router(allocation_router)
 app.include_router(stats_router)
 app.include_router(replenishment_router)
+app.include_router(relocation_router)
 
 
 @app.get("/")
@@ -337,6 +416,10 @@ def dashboard(db: Session = Depends(get_db)):
     ).count()
     replenish_pending = db.query(ReplenishTask).filter(ReplenishTask.status == "pending").count()
 
+    from relocation import get_relocation_stats
+    relocation_stats = get_relocation_stats(db)
+    relocation_pending = db.query(RelocationSuggestion).filter(RelocationSuggestion.status == "pending").count()
+
     return {
         "orders": {
             "total": total_orders,
@@ -363,6 +446,12 @@ def dashboard(db: Session = Depends(get_db)):
             "today_created": replenish_today_created,
             "today_completed": replenish_today_completed,
             "pending": replenish_pending,
+        },
+        "relocation": {
+            "total_executed": relocation_stats.total_executed,
+            "total_estimated_saving": relocation_stats.total_estimated_saving,
+            "pending_suggestions": relocation_pending,
+            "last_full_optimization_at": relocation_stats.last_full_optimization_at,
         },
     }
 

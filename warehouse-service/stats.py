@@ -2,8 +2,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Picker, Bin, Order, OrderItem, PickTask, ReplenishTask
-from schemas import PickerStatsResponse, BinHeatResponse, OrderStatsResponse, ReplenishStatsResponse
+from models import Picker, Bin, Order, OrderItem, PickTask, ReplenishTask, RelocationStats, RelocationSuggestion
+from schemas import PickerStatsResponse, BinHeatResponse, OrderStatsResponse, ReplenishStatsResponse, RelocationStatsResponse
 
 router = APIRouter(prefix="/api/stats", tags=["statistics"])
 
@@ -192,3 +192,15 @@ def replenishment_stats(db: Session = Depends(get_db)):
         total_pending=total_pending,
         total_in_progress=total_in_progress,
     )
+
+
+@router.get("/relocation", response_model=RelocationStatsResponse)
+def relocation_stats(db: Session = Depends(get_db)):
+    stats = db.query(RelocationStats).first()
+    if not stats:
+        return RelocationStatsResponse(
+            total_executed=0,
+            total_estimated_saving=0.0,
+            last_full_optimization_at=None,
+        )
+    return stats

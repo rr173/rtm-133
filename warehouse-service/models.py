@@ -154,3 +154,28 @@ class ReplenishTask(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     actual_quantity = Column(Integer, nullable=True)
+
+
+class RelocationSuggestion(Base):
+    __tablename__ = "relocation_suggestions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_bin = Column(String(20), nullable=False)
+    target_bin = Column(String(20), nullable=False)
+    sku_code = Column(String(50), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    estimated_saving = Column(Float, default=0.0)
+    status = Column(String(20), default="pending", nullable=False)
+    reason = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    confirmed_at = Column(DateTime, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+
+
+class RelocationStats(Base):
+    __tablename__ = "relocation_stats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    total_executed = Column(Integer, default=0)
+    total_estimated_saving = Column(Float, default=0.0)
+    last_full_optimization_at = Column(DateTime, nullable=True)
