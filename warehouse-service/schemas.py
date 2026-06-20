@@ -61,6 +61,7 @@ class OrderItemCreate(BaseModel):
 
 class OrderCreate(BaseModel):
     items: list[OrderItemCreate]
+    priority: str = "normal"
 
 
 class OrderItemResponse(BaseModel):
@@ -79,6 +80,11 @@ class OrderItemResponse(BaseModel):
 class OrderResponse(BaseModel):
     id: int
     status: str
+    priority: str
+    is_overdue: bool
+    is_critically_overdue: bool
+    escalation_count: int
+    fulfillment_deadline_minutes: int
     wave_id: Optional[int] = None
     picker_id: Optional[int] = None
     created_at: Optional[datetime] = None
@@ -268,3 +274,22 @@ class RelocationStatsResponse(BaseModel):
     total_executed: int
     total_estimated_saving: float
     last_full_optimization_at: Optional[datetime] = None
+
+
+class PriorityPendingCount(BaseModel):
+    priority: str
+    pending_count: int
+
+
+class OrderPriorityStatsResponse(BaseModel):
+    pending_by_priority: list[PriorityPendingCount]
+    today_overdue_count: int
+    avg_fulfillment_seconds_by_priority: list[dict]
+
+
+class OverdueCheckResult(BaseModel):
+    scanned_count: int
+    escalated_count: int
+    newly_overdue_count: int
+    critically_overdue_count: int
+    escalated_orders: list[dict]

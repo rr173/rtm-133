@@ -3,7 +3,10 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Order, OrderItem, Picker, Bin, PickTask, Wave, WarehouseConfig
+from models import (
+    Order, OrderItem, Picker, Bin, PickTask, Wave, WarehouseConfig,
+    PRIORITY_LEVEL,
+)
 from schemas import (
     PickConfirmRequest,
     PickTaskResponse,
@@ -262,8 +265,10 @@ def trigger_allocation(db: Session):
     pending_orders = (
         db.query(Order)
         .filter(Order.status == "pending")
-        .order_by(Order.created_at)
         .all()
+    )
+    pending_orders.sort(
+        key=lambda o: (-PRIORITY_LEVEL.get(o.priority, 0), o.created_at)
     )
     idle_pickers = db.query(Picker).filter(Picker.status == "idle").all()
 

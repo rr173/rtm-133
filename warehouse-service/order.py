@@ -1,15 +1,97 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Order, OrderItem, Bin, PickTask, Picker
-from schemas import OrderCreate, OrderResponse, OrderItemResponse
+from models import (
+    Order, OrderItem, Bin, PickTask, Picker,
+    PRIORITY_NORMAL, PRIORITY_URGENT, PRIORITY_SUPER_URGENT,
+    PRIORITY_FULFILLMENT_MINUTES, PRIORITY_LEVEL, PRIORITY_ESCALATION,
+)
+from schemas import OrderCreate, OrderResponse, OrderItemResponse, OverdueCheckResult
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+VALID_PRIORITIES = {PRIORITY_NORMAL, PRIORITY_URGENT, PRIORITY_SUPER_URGENT}
+
+
+def _get_fulfillment_deadline(priority: str) -> int:
+    return PRIORITY_FULFILLMENT_MINUTES.get(priority, PRIORITY_FULFILLMENT_MINUTES[PRIORITY_NORMAL])
+
+
+def _is_order_overdue(order: Order, now: datetime) -> bool:
+    if order.status in ("completed", "shipped", "cancelled"):
+        return False
+    if not order.created_at:
+        return False
+    deadline_minutes = _get_fulfillment_deadline(order.priority)
+    return (now - order.created_at) > timedelta(minutes=deadline_minutes)
+
+
+def _escalate_order_priority(order: Order) -> tuple[str, bool]:
+    old_priority = order.priority
+    if order.priority in PRIORITY_ESCALATION:
+        order.priority = PRIORITY_ESCALATION[order.priority]
+        order.escalation_count = (order.escalation_count or 0) + 1
+        return old_priority, True
+    else:
+        order.is_critically_overdue = True
+        return old_priority, False
+
+
+def check_and_process_overdue_orders(db: Session) -> dict:
+    now = datetime.utcnow()
+    non_terminal_statuses = ("pending", "allocated", "picking")
+    orders = db.query(Order).filter(Order.status.in_(non_terminal_statuses)).all()
+
+    escalated_count = 0
+    newly_overdue_count = 0
+    critically_overdue_count = 0
+    escalated_orders = []
+
+    for order in orders:
+        was_overdue = order.is_overdue
+        is_overdue = _is_order_overdue(order, now)
+
+        if is_overdue and not was_overdue:
+            newly_overdue_count += 1
+            order.is_overdue = True
+
+        if is_overdue:
+            if not was_overdue:
+                old_priority, escalated = _escalate_order_priority(order)
+                if escalated:
+                    escalated_count += 1
+                    escalated_orders.append({
+                        "order_id": order.id,
+                        "old_priority": old_priority,
+                        "new_priority": order.priority,
+                        "created_at": order.created_at,
+                    })
+                else:
+                    critically_overdue_count += 1
+            elif order.priority == PRIORITY_SUPER_URGENT and not order.is_critically_overdue:
+                order.is_critically_overdue = True
+                critically_overdue_count += 1
+
+    db.commit()
+
+    return {
+        "scanned_count": len(orders),
+        "escalated_count": escalated_count,
+        "newly_overdue_count": newly_overdue_count,
+        "critically_overdue_count": critically_overdue_count,
+        "escalated_orders": escalated_orders,
+    }
 
 
 @router.post("", response_model=OrderResponse)
 def create_order(req: OrderCreate, db: Session = Depends(get_db)):
+    if req.priority not in VALID_PRIORITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的优先级: {req.priority}, 有效值为: {', '.join(sorted(VALID_PRIORITIES))}",
+        )
+
     for item in req.items:
         bins = db.query(Bin).filter(Bin.sku_code == item.sku_code).all()
         total_available = sum(b.quantity - b.frozen_quantity for b in bins)
@@ -19,7 +101,14 @@ def create_order(req: OrderCreate, db: Session = Depends(get_db)):
                 detail=f"SKU {item.sku_code} 库存不足: 需要{item.quantity}, 可用{total_available}",
             )
 
-    order = Order(status="pending", created_at=datetime.utcnow())
+    order = Order(
+        status="pending",
+        priority=req.priority,
+        is_overdue=False,
+        is_critically_overdue=False,
+        escalation_count=0,
+        created_at=datetime.utcnow(),
+    )
     db.add(order)
     db.flush()
 
@@ -117,11 +206,22 @@ def ship_order(order_id: int, db: Session = Depends(get_db)):
     return _build_order_response(order, db)
 
 
+@router.post("/check-overdue", response_model=OverdueCheckResult)
+def trigger_overdue_check(db: Session = Depends(get_db)):
+    result = check_and_process_overdue_orders(db)
+    return OverdueCheckResult(**result)
+
+
 def _build_order_response(order: Order, db: Session):
     items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
     return OrderResponse(
         id=order.id,
         status=order.status,
+        priority=order.priority,
+        is_overdue=order.is_overdue,
+        is_critically_overdue=order.is_critically_overdue,
+        escalation_count=order.escalation_count,
+        fulfillment_deadline_minutes=_get_fulfillment_deadline(order.priority),
         wave_id=order.wave_id,
         picker_id=order.picker_id,
         created_at=order.created_at,

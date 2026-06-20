@@ -2,8 +2,14 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Picker, Bin, Order, OrderItem, PickTask, ReplenishTask, RelocationStats, RelocationSuggestion
-from schemas import PickerStatsResponse, BinHeatResponse, OrderStatsResponse, ReplenishStatsResponse, RelocationStatsResponse
+from models import (
+    Picker, Bin, Order, OrderItem, PickTask, ReplenishTask, RelocationStats, RelocationSuggestion,
+    PRIORITY_NORMAL, PRIORITY_URGENT, PRIORITY_SUPER_URGENT,
+)
+from schemas import (
+    PickerStatsResponse, BinHeatResponse, OrderStatsResponse, ReplenishStatsResponse,
+    RelocationStatsResponse, OrderPriorityStatsResponse, PriorityPendingCount,
+)
 
 router = APIRouter(prefix="/api/stats", tags=["statistics"])
 
@@ -204,3 +210,66 @@ def relocation_stats(db: Session = Depends(get_db)):
             last_full_optimization_at=None,
         )
     return stats
+
+
+@router.get("/orders/priority", response_model=OrderPriorityStatsResponse)
+def order_priority_stats(db: Session = Depends(get_db)):
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    non_terminal_statuses = ("pending", "allocated", "picking")
+    all_priorities = [PRIORITY_NORMAL, PRIORITY_URGENT, PRIORITY_SUPER_URGENT]
+
+    pending_by_priority = []
+    for priority in all_priorities:
+        count = (
+            db.query(Order)
+            .filter(
+                Order.status.in_(non_terminal_statuses),
+                Order.priority == priority,
+            )
+            .count()
+        )
+        pending_by_priority.append(PriorityPendingCount(
+            priority=priority,
+            pending_count=count,
+        ))
+
+    today_overdue_count = (
+        db.query(Order)
+        .filter(
+            Order.is_overdue == True,
+            Order.created_at >= today_start,
+        )
+        .count()
+    )
+
+    avg_fulfillment_by_priority = []
+    for priority in all_priorities:
+        orders = (
+            db.query(Order)
+            .filter(
+                Order.priority == priority,
+                Order.created_at.isnot(None),
+                Order.completed_at.isnot(None),
+            )
+            .all()
+        )
+        if orders:
+            times = []
+            for o in orders:
+                elapsed = (o.completed_at - o.created_at).total_seconds()
+                times.append(elapsed)
+            avg_sec = round(sum(times) / len(times), 2) if times else 0.0
+        else:
+            avg_sec = 0.0
+        avg_fulfillment_by_priority.append({
+            "priority": priority,
+            "avg_fulfillment_seconds": avg_sec,
+            "completed_count": len(orders),
+        })
+
+    return OrderPriorityStatsResponse(
+        pending_by_priority=pending_by_priority,
+        today_overdue_count=today_overdue_count,
+        avg_fulfillment_seconds_by_priority=avg_fulfillment_by_priority,
+    )

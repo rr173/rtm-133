@@ -1,6 +1,6 @@
 import random
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from database import SessionLocal, engine, Base, get_db
 from models import (
     WarehouseConfig, Aisle, Bin, Order, OrderItem, Picker, PickTask, Wave,
     ReplenishConfig, ReplenishTask, RelocationSuggestion, RelocationStats,
+    PRIORITY_NORMAL, PRIORITY_URGENT, PRIORITY_SUPER_URGENT,
 )
 from warehouse import router as warehouse_router
 from inventory import router as inventory_router
@@ -131,7 +132,20 @@ def preset_test_orders(db: Session, config: WarehouseConfig):
     if len(available_skus) < 5:
         return
 
-    for order_idx in range(5):
+    now = datetime.utcnow()
+    order_specs = [
+        (PRIORITY_NORMAL, now),
+        (PRIORITY_NORMAL, now),
+        (PRIORITY_URGENT, now - timedelta(minutes=31)),
+        (PRIORITY_URGENT, now),
+        (PRIORITY_SUPER_URGENT, now),
+    ]
+
+    created_count = 0
+    for priority, created_time in order_specs:
+        if created_count >= 5:
+            break
+
         num_items = random.randint(2, 5)
         selected_skus = random.sample(available_skus, min(num_items, len(available_skus)))
 
@@ -149,7 +163,14 @@ def preset_test_orders(db: Session, config: WarehouseConfig):
         if not valid:
             continue
 
-        order = Order(status="pending", created_at=datetime.utcnow())
+        order = Order(
+            status="pending",
+            priority=priority,
+            is_overdue=False,
+            is_critically_overdue=False,
+            escalation_count=0,
+            created_at=created_time,
+        )
         db.add(order)
         db.flush()
 
@@ -163,6 +184,8 @@ def preset_test_orders(db: Session, config: WarehouseConfig):
                 status="pending",
             )
             db.add(order_item)
+
+        created_count += 1
 
     db.flush()
 

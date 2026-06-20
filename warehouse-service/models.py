@@ -50,11 +50,37 @@ class Bin(Base):
     aisle = relationship("Aisle", back_populates="bins")
 
 
+PRIORITY_NORMAL = "normal"
+PRIORITY_URGENT = "urgent"
+PRIORITY_SUPER_URGENT = "super_urgent"
+
+PRIORITY_LEVEL = {
+    PRIORITY_NORMAL: 0,
+    PRIORITY_URGENT: 1,
+    PRIORITY_SUPER_URGENT: 2,
+}
+
+PRIORITY_FULFILLMENT_MINUTES = {
+    PRIORITY_NORMAL: 60,
+    PRIORITY_URGENT: 30,
+    PRIORITY_SUPER_URGENT: 15,
+}
+
+PRIORITY_ESCALATION = {
+    PRIORITY_NORMAL: PRIORITY_URGENT,
+    PRIORITY_URGENT: PRIORITY_SUPER_URGENT,
+}
+
+
 class Order(Base):
     __tablename__ = "orders"
 
     id = Column(Integer, primary_key=True, index=True)
     status = Column(String(20), default="pending", nullable=False)
+    priority = Column(String(20), default=PRIORITY_NORMAL, nullable=False)
+    is_overdue = Column(Boolean, default=False, nullable=False)
+    is_critically_overdue = Column(Boolean, default=False, nullable=False)
+    escalation_count = Column(Integer, default=0, nullable=False)
     wave_id = Column(Integer, ForeignKey("waves.id"), nullable=True)
     picker_id = Column(Integer, ForeignKey("pickers.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
