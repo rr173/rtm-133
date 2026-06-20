@@ -21,6 +21,7 @@ from stats import router as stats_router
 from replenishment import router as replenishment_router
 from relocation import router as relocation_router
 from schedule import router as schedule_router, is_picker_on_duty
+from exception_ticket import router as exception_ticket_router, preset_test_exception_data
 
 Base.metadata.create_all(bind=engine)
 
@@ -403,6 +404,22 @@ async def lifespan(app: FastAPI):
         print(f"  前半段冷门库位(拣取=0次): {cold_front_count}个")
         print(f"  提示: 调用 POST /api/relocation/generate-full 可生成全仓搬迁建议")
         print(f"========================================")
+
+        preset_test_exception_data(db)
+        from models import OrderItem, ReplenishTask
+        from datetime import timedelta
+        exception_count = db.query(OrderItem).filter(OrderItem.status == "exception").count()
+        now = datetime.utcnow()
+        cutoff = now - timedelta(hours=2)
+        timeout_replenish_count = db.query(ReplenishTask).filter(
+            ReplenishTask.status.in_(["pending", "in_progress"]),
+            ReplenishTask.created_at <= cutoff,
+        ).count()
+        print(f"========== 异常工单预置信息 ==========")
+        print(f"  预置异常拣货明细: {exception_count}条")
+        print(f"  预置超时补货任务: {timeout_replenish_count}条")
+        print(f"  提示: 调用 POST /api/exception-tickets/scan 可触发全局异常扫描")
+        print(f"========================================")
     finally:
         db.close()
 
@@ -425,6 +442,7 @@ app.include_router(stats_router)
 app.include_router(replenishment_router)
 app.include_router(relocation_router)
 app.include_router(schedule_router)
+app.include_router(exception_ticket_router)
 
 
 @app.get("/")
@@ -467,6 +485,13 @@ def dashboard(db: Session = Depends(get_db)):
     relocation_stats = get_relocation_stats(db)
     relocation_pending = db.query(RelocationSuggestion).filter(RelocationSuggestion.status == "pending").count()
 
+    from models import ExceptionTicket, TICKET_STATUS_PENDING, TICKET_STATUS_IN_PROGRESS, TICKET_STATUS_CLOSED
+    ticket_total = db.query(ExceptionTicket).count()
+    ticket_pending = db.query(ExceptionTicket).filter(ExceptionTicket.status == TICKET_STATUS_PENDING).count()
+    ticket_in_progress = db.query(ExceptionTicket).filter(ExceptionTicket.status == TICKET_STATUS_IN_PROGRESS).count()
+    ticket_closed = db.query(ExceptionTicket).filter(ExceptionTicket.status == TICKET_STATUS_CLOSED).count()
+    ticket_today_created = db.query(ExceptionTicket).filter(ExceptionTicket.created_at >= today_start).count()
+
     return {
         "orders": {
             "total": total_orders,
@@ -499,6 +524,13 @@ def dashboard(db: Session = Depends(get_db)):
             "total_estimated_saving": relocation_stats.total_estimated_saving,
             "pending_suggestions": relocation_pending,
             "last_full_optimization_at": relocation_stats.last_full_optimization_at,
+        },
+        "exception_tickets": {
+            "total": ticket_total,
+            "today_created": ticket_today_created,
+            "pending": ticket_pending,
+            "in_progress": ticket_in_progress,
+            "closed": ticket_closed,
         },
     }
 

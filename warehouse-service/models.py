@@ -235,3 +235,64 @@ class RelocationStats(Base):
     total_executed = Column(Integer, default=0)
     total_estimated_saving = Column(Float, default=0.0)
     last_full_optimization_at = Column(DateTime, nullable=True)
+
+
+TICKET_TYPE_INVENTORY = "inventory"
+TICKET_TYPE_REMINDER = "reminder"
+TICKET_TYPE_CUSTOM = "custom"
+
+TICKET_TYPES = {
+    TICKET_TYPE_INVENTORY: "盘点工单",
+    TICKET_TYPE_REMINDER: "催办工单",
+    TICKET_TYPE_CUSTOM: "自定义工单",
+}
+
+TICKET_STATUS_PENDING = "pending"
+TICKET_STATUS_IN_PROGRESS = "in_progress"
+TICKET_STATUS_CLOSED = "closed"
+
+TICKET_STATUSES = {
+    TICKET_STATUS_PENDING: "待处理",
+    TICKET_STATUS_IN_PROGRESS: "处理中",
+    TICKET_STATUS_CLOSED: "已关闭",
+}
+
+TICKET_PRIORITY_LOW = "low"
+TICKET_PRIORITY_MEDIUM = "medium"
+TICKET_PRIORITY_HIGH = "high"
+
+TICKET_PRIORITIES = {
+    TICKET_PRIORITY_LOW: "低",
+    TICKET_PRIORITY_MEDIUM: "中",
+    TICKET_PRIORITY_HIGH: "高",
+}
+
+TICKET_PRIORITY_ORDER = {
+    TICKET_PRIORITY_LOW: 0,
+    TICKET_PRIORITY_MEDIUM: 1,
+    TICKET_PRIORITY_HIGH: 2,
+}
+
+SOURCE_TYPE_PICK_TASK = "pick_task"
+SOURCE_TYPE_REPLENISH_TASK = "replenish_task"
+SOURCE_TYPE_CUSTOM = "custom"
+
+
+class ExceptionTicket(Base):
+    __tablename__ = "exception_tickets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_type = Column(String(20), nullable=False)
+    source_type = Column(String(20), nullable=False)
+    source_id = Column(Integer, nullable=True)
+    target_bin = Column(String(20), nullable=False)
+    description = Column(String(500), nullable=False)
+    status = Column(String(20), default=TICKET_STATUS_PENDING, nullable=False)
+    priority = Column(String(20), default=TICKET_PRIORITY_LOW, nullable=False)
+    is_urgent = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    claimed_at = Column(DateTime, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    handler = Column(String(100), nullable=True)
+    handler_note = Column(Text, nullable=True)
+    last_escalated_at = Column(DateTime, nullable=True)

@@ -16,6 +16,7 @@ from schemas import (
     PathPlanResponse,
 )
 from replenishment import check_and_create_replenish_task
+from exception_ticket import create_inventory_ticket_for_exception
 from schedule import (
     get_available_pickers_for_allocation,
     update_work_hours_on_task_start,
@@ -394,6 +395,13 @@ def confirm_pick(
             item = db.query(OrderItem).filter(OrderItem.id == order_item_id).first()
             if item:
                 item.status = "exception"
+                create_inventory_ticket_for_exception(
+                    db=db,
+                    pick_task_id=task_id,
+                    order_item_id=order_item_id,
+                    bin_coordinate=coordinate,
+                    sku_code=current_step.get("sku_code", ""),
+                )
         unfreeze_qty = expected_qty
         if bin_obj.frozen_quantity >= unfreeze_qty:
             bin_obj.frozen_quantity -= unfreeze_qty

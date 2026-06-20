@@ -337,3 +337,43 @@ class OverdueCheckResult(BaseModel):
     newly_overdue_count: int
     critically_overdue_count: int
     escalated_orders: list[dict]
+
+
+class ExceptionTicketCreate(BaseModel):
+    target_bin: str
+    description: str
+    priority: str = "low"
+
+
+class ExceptionTicketClaimRequest(BaseModel):
+    handler: str
+
+
+class ExceptionTicketCloseRequest(BaseModel):
+    handler_note: str
+
+
+class ExceptionTicketResponse(BaseModel):
+    id: int
+    ticket_type: str
+    source_type: str
+    source_id: Optional[int] = None
+    target_bin: str
+    description: str
+    status: str
+    priority: str
+    is_urgent: bool
+    created_at: datetime
+    claimed_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    handler: Optional[str] = None
+    handler_note: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ExceptionTicketStatsResponse(BaseModel):
+    today_by_type: dict
+    today_by_status: dict
+    avg_processing_seconds: float
