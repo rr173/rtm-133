@@ -144,7 +144,6 @@ class ReplenishConfig(Base):
 
 class ReplenishTask(Base):
     __tablename__ = "replenish_tasks"
-    __table_args__ = (UniqueConstraint("bin_coordinate", "sku_code", name="uq_replenish_task_bin_sku"),)
 
     id = Column(Integer, primary_key=True, index=True)
     bin_coordinate = Column(String(20), nullable=False)

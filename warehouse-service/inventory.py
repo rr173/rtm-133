@@ -9,9 +9,19 @@ router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 @router.post("/stock-in")
 def stock_in(req: StockInRequest, db: Session = Depends(get_db)):
+    if req.quantity <= 0:
+        raise HTTPException(status_code=400, detail="入库数量必须大于0")
+
     bin_obj = db.query(Bin).filter(Bin.coordinate == req.coordinate).first()
     if not bin_obj:
         raise HTTPException(status_code=404, detail="库位不存在")
+
+    if bin_obj.sku_code and bin_obj.sku_code != req.sku_code:
+        raise HTTPException(
+            status_code=400,
+            detail=f"库位已有SKU {bin_obj.sku_code}, 不能入库不同SKU {req.sku_code}",
+        )
+
     bin_obj.sku_code = req.sku_code
     bin_obj.quantity += req.quantity
     db.commit()
@@ -62,6 +72,9 @@ def query_bin_inventory(coordinate: str, db: Session = Depends(get_db)):
 
 @router.post("/freeze")
 def freeze_inventory(req: FreezeRequest, db: Session = Depends(get_db)):
+    if req.quantity <= 0:
+        raise HTTPException(status_code=400, detail="冻结数量必须大于0")
+
     bin_obj = db.query(Bin).filter(Bin.coordinate == req.coordinate).first()
     if not bin_obj:
         raise HTTPException(status_code=404, detail="库位不存在")
@@ -83,6 +96,9 @@ def freeze_inventory(req: FreezeRequest, db: Session = Depends(get_db)):
 
 @router.post("/unfreeze")
 def unfreeze_inventory(req: FreezeRequest, db: Session = Depends(get_db)):
+    if req.quantity <= 0:
+        raise HTTPException(status_code=400, detail="解冻数量必须大于0")
+
     bin_obj = db.query(Bin).filter(Bin.coordinate == req.coordinate).first()
     if not bin_obj:
         raise HTTPException(status_code=404, detail="库位不存在")
