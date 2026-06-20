@@ -1,7 +1,20 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, ForeignKey, UniqueConstraint, Date
 from sqlalchemy.orm import relationship
 from database import Base
+
+
+SHIFT_MORNING = "morning"
+SHIFT_AFTERNOON = "afternoon"
+SHIFT_NIGHT = "night"
+
+SHIFT_TEMPLATES = {
+    SHIFT_MORNING: {"name": "早班", "start_hour": 8, "end_hour": 16},
+    SHIFT_AFTERNOON: {"name": "中班", "start_hour": 16, "end_hour": 0},
+    SHIFT_NIGHT: {"name": "晚班", "start_hour": 0, "end_hour": 8},
+}
+
+FATIGUE_THRESHOLD_HOURS = 7
 
 
 class WarehouseConfig(Base):
@@ -114,6 +127,7 @@ class Picker(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     status = Column(String(20), default="idle", nullable=False)
+    shift_code = Column(String(20), default=SHIFT_MORNING, nullable=False)
     current_x = Column(Integer, default=0)
     current_y = Column(Integer, default=0)
     current_task_id = Column(Integer, nullable=True)
@@ -122,6 +136,22 @@ class Picker(Base):
     total_pick_time = Column(Float, default=0.0)
 
     pick_tasks = relationship("PickTask", back_populates="picker")
+    work_hour_records = relationship("WorkHourRecord", back_populates="picker", cascade="all, delete-orphan")
+
+
+class WorkHourRecord(Base):
+    __tablename__ = "work_hour_records"
+    __table_args__ = (UniqueConstraint("picker_id", "work_date", name="uq_work_hour_picker_date"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    picker_id = Column(Integer, ForeignKey("pickers.id"), nullable=False)
+    work_date = Column(Date, nullable=False)
+    first_task_started_at = Column(DateTime, nullable=True)
+    last_task_completed_at = Column(DateTime, nullable=True)
+    actual_work_seconds = Column(Float, default=0.0)
+    is_fatigued = Column(Boolean, default=False, nullable=False)
+
+    picker = relationship("Picker", back_populates="work_hour_records")
 
 
 class PickTask(Base):

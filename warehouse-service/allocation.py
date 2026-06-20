@@ -16,6 +16,11 @@ from schemas import (
     PathPlanResponse,
 )
 from replenishment import check_and_create_replenish_task
+from schedule import (
+    get_available_pickers_for_allocation,
+    update_work_hours_on_task_start,
+    update_work_hours_on_task_complete,
+)
 
 router = APIRouter(prefix="/api", tags=["allocation"])
 
@@ -270,10 +275,10 @@ def trigger_allocation(db: Session):
     pending_orders.sort(
         key=lambda o: (-PRIORITY_LEVEL.get(o.priority, 0), o.created_at)
     )
-    idle_pickers = db.query(Picker).filter(Picker.status == "idle").all()
+    available_pickers = get_available_pickers_for_allocation(db)
 
     results = []
-    for picker in idle_pickers:
+    for picker in available_pickers:
         if not pending_orders:
             break
         for order in pending_orders[:]:
@@ -338,6 +343,8 @@ def start_picking(task_id: int, db: Session = Depends(get_db)):
     task.status = "in_progress"
     task.started_at = datetime.utcnow()
     task.current_step = 0
+
+    update_work_hours_on_task_start(db, task.picker_id, task.started_at)
 
     if task.order_id:
         order = db.query(Order).filter(Order.id == task.order_id).first()
@@ -439,6 +446,7 @@ def confirm_pick(
                 picker.total_pick_time += elapsed
             picker.current_x = 0
             picker.current_y = 0
+            update_work_hours_on_task_complete(db, picker.id, task.completed_at)
 
         if task.order_id:
             order = db.query(Order).filter(Order.id == task.order_id).first()
@@ -488,6 +496,7 @@ def complete_picking(task_id: int, db: Session = Depends(get_db)):
             picker.total_pick_time += elapsed
         picker.current_x = 0
         picker.current_y = 0
+        update_work_hours_on_task_complete(db, picker.id, task.completed_at)
 
     if task.order_id:
         order = db.query(Order).filter(Order.id == task.order_id).first()
@@ -578,11 +587,11 @@ def create_wave(req: WaveCreateRequest, db: Session = Depends(get_db)):
     orders, all_bin_coords = _check_wave_eligibility(req.order_ids, db)
     config = _get_warehouse_config(db)
 
-    idle_pickers = db.query(Picker).filter(Picker.status == "idle").all()
-    if not idle_pickers:
-        raise HTTPException(status_code=400, detail="无空闲拣货员")
+    available_pickers = get_available_pickers_for_allocation(db)
+    if not available_pickers:
+        raise HTTPException(status_code=400, detail="无在班且空闲的拣货员")
 
-    picker = idle_pickers[0]
+    picker = available_pickers[0]
 
     wave = Wave(
         picker_id=picker.id,

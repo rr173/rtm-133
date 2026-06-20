@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 from pydantic import BaseModel
 
@@ -99,16 +99,19 @@ class OrderResponse(BaseModel):
 
 class PickerCreate(BaseModel):
     name: str
+    shift_code: str = "morning"
 
 
 class PickerUpdate(BaseModel):
     status: Optional[str] = None
+    shift_code: Optional[str] = None
 
 
 class PickerResponse(BaseModel):
     id: int
     name: str
     status: str
+    shift_code: str = "morning"
     current_x: int
     current_y: int
     current_task_id: Optional[int] = None
@@ -118,6 +121,47 @@ class PickerResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ShiftTemplateResponse(BaseModel):
+    code: str
+    name: str
+    start_hour: int
+    end_hour: int
+
+
+class OnDutyPickerResponse(BaseModel):
+    picker_id: int
+    name: str
+    status: str
+    shift_code: str
+    shift_name: str
+    is_fatigued: bool = False
+
+
+class WorkHourRecordResponse(BaseModel):
+    id: int
+    picker_id: int
+    work_date: date
+    first_task_started_at: Optional[datetime] = None
+    last_task_completed_at: Optional[datetime] = None
+    actual_work_seconds: float = 0.0
+    actual_work_hours: float = 0.0
+    is_fatigued: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class WorkHourStatsResponse(BaseModel):
+    picker_id: int
+    name: str
+    shift_code: str
+    total_work_hours: float = 0.0
+    avg_daily_hours: float = 0.0
+    max_consecutive_hours: float = 0.0
+    work_days: int = 0
+    fatigue_days: int = 0
 
 
 class PathStep(BaseModel):

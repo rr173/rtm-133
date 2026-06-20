@@ -10,6 +10,7 @@ from models import (
     WarehouseConfig, Aisle, Bin, Order, OrderItem, Picker, PickTask, Wave,
     ReplenishConfig, ReplenishTask, RelocationSuggestion, RelocationStats,
     PRIORITY_NORMAL, PRIORITY_URGENT, PRIORITY_SUPER_URGENT,
+    SHIFT_MORNING, SHIFT_AFTERNOON, SHIFT_NIGHT, SHIFT_TEMPLATES,
 )
 from warehouse import router as warehouse_router
 from inventory import router as inventory_router
@@ -19,6 +20,7 @@ from allocation import router as allocation_router, trigger_allocation
 from stats import router as stats_router
 from replenishment import router as replenishment_router
 from relocation import router as relocation_router
+from schedule import router as schedule_router, is_picker_on_duty
 
 Base.metadata.create_all(bind=engine)
 
@@ -99,10 +101,12 @@ def preset_pickers(db: Session):
     existing = db.query(Picker).first()
     if existing:
         return
+    shift_codes = [SHIFT_MORNING, SHIFT_AFTERNOON, SHIFT_NIGHT]
     for i in range(1, 4):
         picker = Picker(
             name=f"拣货员{i}",
             status="idle",
+            shift_code=shift_codes[i - 1],
             current_x=0,
             current_y=0,
         )
@@ -330,6 +334,25 @@ async def lifespan(app: FastAPI):
         preset_bin_heat_data(db, config)
         db.commit()
 
+        print(f"========== 拣货员排班预置信息 ==========")
+        now = datetime.utcnow()
+        current_hour = now.hour
+        print(f"  当前UTC时间: {now.strftime('%Y-%m-%d %H:%M:%S')} (小时: {current_hour})")
+        for shift_code, shift_info in SHIFT_TEMPLATES.items():
+            print(f"  {shift_info['name']}({shift_code}): {shift_info['start_hour']:02d}:00 - {shift_info['end_hour']:02d}:00")
+        all_pickers = db.query(Picker).all()
+        on_duty_names = []
+        for p in all_pickers:
+            on_duty = is_picker_on_duty(p, now)
+            shift_name = SHIFT_TEMPLATES.get(p.shift_code, {}).get("name", p.shift_code)
+            status_str = "在班" if on_duty else "不在班"
+            print(f"  {p.name}(ID={p.id}): 班次={shift_name}, 状态={status_str}")
+            if on_duty:
+                on_duty_names.append(p.name)
+        print(f"  当前在班拣货员: {', '.join(on_duty_names) if on_duty_names else '无'}")
+        print(f"  提示: 自动分配将只使用在班且空闲的拣货员，疲劳状态的拣货员优先级降低")
+        print(f"========================================")
+
         results = trigger_allocation(db)
         print(f"========== 启动时自动分配结果 ==========")
         for r in results:
@@ -401,6 +424,7 @@ app.include_router(allocation_router)
 app.include_router(stats_router)
 app.include_router(replenishment_router)
 app.include_router(relocation_router)
+app.include_router(schedule_router)
 
 
 @app.get("/")
