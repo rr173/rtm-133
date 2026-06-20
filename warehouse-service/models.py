@@ -128,3 +128,30 @@ class Wave(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     pick_tasks = relationship("PickTask", back_populates="wave")
+
+
+class ReplenishConfig(Base):
+    __tablename__ = "replenish_configs"
+    __table_args__ = (UniqueConstraint("sku_code", name="uq_replenish_config_sku"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    sku_code = Column(String(50), nullable=False)
+    threshold = Column(Integer, nullable=False, default=5)
+    target_quantity = Column(Integer, nullable=False, default=30)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReplenishTask(Base):
+    __tablename__ = "replenish_tasks"
+    __table_args__ = (UniqueConstraint("bin_coordinate", "sku_code", name="uq_replenish_task_bin_sku"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    bin_coordinate = Column(String(20), nullable=False)
+    sku_code = Column(String(50), nullable=False)
+    required_quantity = Column(Integer, nullable=False)
+    status = Column(String(20), default="pending", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    actual_quantity = Column(Integer, nullable=True)

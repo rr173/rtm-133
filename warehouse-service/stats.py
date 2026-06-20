@@ -2,8 +2,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Picker, Bin, Order, OrderItem, PickTask
-from schemas import PickerStatsResponse, BinHeatResponse, OrderStatsResponse
+from models import Picker, Bin, Order, OrderItem, PickTask, ReplenishTask
+from schemas import PickerStatsResponse, BinHeatResponse, OrderStatsResponse, ReplenishStatsResponse
 
 router = APIRouter(prefix="/api/stats", tags=["statistics"])
 
@@ -131,4 +131,64 @@ def order_stats(db: Session = Depends(get_db)):
         total_orders=total,
         avg_fulfillment_seconds=round(avg_fulfillment, 2),
         exception_rate=round(exception_rate, 4),
+    )
+
+
+@router.get("/replenishment", response_model=ReplenishStatsResponse)
+def replenishment_stats(db: Session = Depends(get_db)):
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    today_created = (
+        db.query(ReplenishTask)
+        .filter(ReplenishTask.created_at >= today_start)
+        .count()
+    )
+
+    today_completed = (
+        db.query(ReplenishTask)
+        .filter(
+            ReplenishTask.completed_at >= today_start,
+            ReplenishTask.status == "completed",
+        )
+        .count()
+    )
+
+    today_pending = (
+        db.query(ReplenishTask)
+        .filter(
+            ReplenishTask.created_at >= today_start,
+            ReplenishTask.status == "pending",
+        )
+        .count()
+    )
+
+    today_in_progress = (
+        db.query(ReplenishTask)
+        .filter(
+            ReplenishTask.created_at >= today_start,
+            ReplenishTask.status == "in_progress",
+        )
+        .count()
+    )
+
+    today_cancelled = (
+        db.query(ReplenishTask)
+        .filter(
+            ReplenishTask.completed_at >= today_start,
+            ReplenishTask.status == "cancelled",
+        )
+        .count()
+    )
+
+    total_pending = db.query(ReplenishTask).filter(ReplenishTask.status == "pending").count()
+    total_in_progress = db.query(ReplenishTask).filter(ReplenishTask.status == "in_progress").count()
+
+    return ReplenishStatsResponse(
+        today_created=today_created,
+        today_completed=today_completed,
+        today_pending=today_pending,
+        today_in_progress=today_in_progress,
+        today_cancelled=today_cancelled,
+        total_pending=total_pending,
+        total_in_progress=total_in_progress,
     )

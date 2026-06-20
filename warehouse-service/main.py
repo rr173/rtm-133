@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base, get_db
 from models import (
     WarehouseConfig, Aisle, Bin, Order, OrderItem, Picker, PickTask, Wave,
+    ReplenishConfig, ReplenishTask,
 )
 from warehouse import router as warehouse_router
 from inventory import router as inventory_router
@@ -15,6 +16,7 @@ from order import router as order_router
 from picker import router as picker_router
 from allocation import router as allocation_router, trigger_allocation
 from stats import router as stats_router
+from replenishment import router as replenishment_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -164,12 +166,91 @@ def preset_test_orders(db: Session, config: WarehouseConfig):
     db.flush()
 
 
+def preset_replenish_configs(db: Session):
+    existing = db.query(ReplenishConfig).first()
+    if existing:
+        return
+
+    configs_data = [
+        {"sku_code": "SKU001", "threshold": 10, "target_quantity": 50},
+        {"sku_code": "SKU002", "threshold": 8, "target_quantity": 40},
+        {"sku_code": "SKU003", "threshold": 15, "target_quantity": 60},
+        {"sku_code": "SKU004", "threshold": 5, "target_quantity": 25},
+        {"sku_code": "SKU005", "threshold": 20, "target_quantity": 80},
+        {"sku_code": "SKU006", "threshold": 12, "target_quantity": 45},
+        {"sku_code": "SKU007", "threshold": 6, "target_quantity": 30},
+        {"sku_code": "SKU008", "threshold": 18, "target_quantity": 70},
+        {"sku_code": "SKU009", "threshold": 9, "target_quantity": 35},
+        {"sku_code": "SKU010", "threshold": 7, "target_quantity": 38},
+    ]
+
+    for cfg in configs_data:
+        config = ReplenishConfig(
+            sku_code=cfg["sku_code"],
+            threshold=cfg["threshold"],
+            target_quantity=cfg["target_quantity"],
+        )
+        db.add(config)
+
+    db.flush()
+
+
+def preset_low_stock_bins(db: Session, config: WarehouseConfig):
+    low_stock_skus = ["SKU001", "SKU002", "SKU003", "SKU004", "SKU005"]
+    thresholds = {
+        "SKU001": 10,
+        "SKU002": 8,
+        "SKU003": 15,
+        "SKU004": 5,
+        "SKU005": 20,
+    }
+
+    count = 0
+    for sku in low_stock_skus:
+        if count >= 3:
+            break
+        bins_with_sku = (
+            db.query(Bin)
+            .filter(
+                Bin.warehouse_id == config.id,
+                Bin.sku_code == sku,
+            )
+            .all()
+        )
+        if not bins_with_sku:
+            continue
+        target_bin = bins_with_sku[0]
+        target_bin.quantity = max(0, thresholds[sku] - random.randint(1, 5))
+        count += 1
+
+    if count < 3:
+        all_sku_bins = (
+            db.query(Bin)
+            .filter(
+                Bin.warehouse_id == config.id,
+                Bin.sku_code.isnot(None),
+                Bin.quantity > 5,
+            )
+            .all()
+        )
+        random.shuffle(all_sku_bins)
+        for b in all_sku_bins:
+            if count >= 3:
+                break
+            b.quantity = random.randint(0, 3)
+            count += 1
+
+    db.flush()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         config = preset_default_warehouse(db)
         preset_skus(db, config)
+        preset_replenish_configs(db)
+        preset_low_stock_bins(db, config)
         preset_pickers(db)
         preset_test_orders(db, config)
         db.commit()
@@ -179,6 +260,24 @@ async def lifespan(app: FastAPI):
         for r in results:
             print(f"  订单 {r['order_id']} -> 拣货员 {r['picker_id']}")
         print(f"  共分配 {len(results)} 个订单")
+        print(f"========================================")
+
+        low_stock_bins = (
+            db.query(Bin)
+            .filter(Bin.sku_code.isnot(None))
+            .all()
+        )
+        low_count = 0
+        from replenishment import get_replenish_config
+        for b in low_stock_bins:
+            available = b.quantity - b.frozen_quantity
+            cfg = get_replenish_config(db, b.sku_code)
+            if available < cfg.threshold:
+                low_count += 1
+        print(f"========== 补货预置信息 ==========")
+        print(f"  预置10个SKU补货配置完成")
+        print(f"  当前低于阈值的库位数: {low_count}")
+        print(f"  提示: 调用 POST /api/replenishment/trigger-full-scan 可触发全仓补货检测")
         print(f"========================================")
     finally:
         db.close()
@@ -199,6 +298,7 @@ app.include_router(order_router)
 app.include_router(picker_router)
 app.include_router(allocation_router)
 app.include_router(stats_router)
+app.include_router(replenishment_router)
 
 
 @app.get("/")
@@ -229,6 +329,14 @@ def dashboard(db: Session = Depends(get_db)):
     total_bins = db.query(Bin).count()
     bins_with_stock = db.query(Bin).filter(Bin.sku_code.isnot(None), Bin.quantity > 0).count()
 
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    replenish_today_created = db.query(ReplenishTask).filter(ReplenishTask.created_at >= today_start).count()
+    replenish_today_completed = db.query(ReplenishTask).filter(
+        ReplenishTask.completed_at >= today_start,
+        ReplenishTask.status == "completed",
+    ).count()
+    replenish_pending = db.query(ReplenishTask).filter(ReplenishTask.status == "pending").count()
+
     return {
         "orders": {
             "total": total_orders,
@@ -250,6 +358,11 @@ def dashboard(db: Session = Depends(get_db)):
         "inventory": {
             "total_bins": total_bins,
             "bins_with_stock": bins_with_stock,
+        },
+        "replenishment": {
+            "today_created": replenish_today_created,
+            "today_completed": replenish_today_completed,
+            "pending": replenish_pending,
         },
     }
 

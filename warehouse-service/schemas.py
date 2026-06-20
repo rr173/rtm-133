@@ -185,3 +185,59 @@ class OrderStatsResponse(BaseModel):
     total_orders: int
     avg_fulfillment_seconds: float
     exception_rate: float
+
+
+class ReplenishConfigCreate(BaseModel):
+    sku_code: str
+    threshold: int
+    target_quantity: int
+
+
+class ReplenishConfigUpdate(BaseModel):
+    threshold: Optional[int] = None
+    target_quantity: Optional[int] = None
+
+
+class ReplenishConfigResponse(BaseModel):
+    id: int
+    sku_code: str
+    threshold: int
+    target_quantity: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ReplenishTaskResponse(BaseModel):
+    id: int
+    bin_coordinate: str
+    sku_code: str
+    required_quantity: int
+    status: str
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    actual_quantity: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ReplenishTaskStartRequest(BaseModel):
+    pass
+
+
+class ReplenishTaskCompleteRequest(BaseModel):
+    actual_quantity: int
+
+
+class ReplenishStatsResponse(BaseModel):
+    today_created: int
+    today_completed: int
+    today_pending: int
+    today_in_progress: int
+    today_cancelled: int
+    total_pending: int
+    total_in_progress: int

@@ -12,6 +12,7 @@ from schemas import (
     PathStep,
     PathPlanResponse,
 )
+from replenishment import check_and_create_replenish_task
 
 router = APIRouter(prefix="/api", tags=["allocation"])
 
@@ -447,6 +448,7 @@ def confirm_pick(
                     order.status = "completed"
                     order.completed_at = datetime.utcnow()
 
+    replenish_task = check_and_create_replenish_task(db, bin_obj)
     db.commit()
     return {
         "task_id": task_id,
@@ -454,6 +456,8 @@ def confirm_pick(
         "coordinate": coordinate,
         "task_status": task.status,
         "exception": req.exception,
+        "replenishment_triggered": replenish_task is not None,
+        "replenish_task_id": replenish_task.id if replenish_task else None,
     }
 
 
